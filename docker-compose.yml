@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # 1. DATABASE SERVICE: PostgreSQL 16 Alpine
+  # ============================================================================
+  sportify-postgres:
+    image: postgres:16-alpine
+    container_name: sportify_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: sportify_user
+      POSTGRES_PASSWORD: SportifySecurePass2026!
+      POSTGRES_DB: sportify_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sportify_user -d sportify_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================================
+  # 2. WEB APPLICATION: Next.js 14 Standalone
+  # ============================================================================
+  sportify-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sportify_web
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "postgresql://sportify_user:SportifySecurePass2026!@sportify-postgres:5432/sportify_db?schema=public"
+      NEXTAUTH_URL: "http://localhost:3000"
+      NEXTAUTH_SECRET: "sportify_production_super_secret_jwt_key_min_32_characters_long_2026!"
+      NODE_ENV: "production"
+    depends_on:
+      sportify-postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    driver: local

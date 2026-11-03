@@ -1,0 +1,244 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CARD
+  KLARNA
+  PAYPAL
+  APPLE_PAY
+}
+
+enum ProductCategory {
+  SHELLS
+  INSULATION
+  MID_LAYERS
+  BASE_LAYERS
+  BOTTOMS
+  ACCESSORIES
+}
+
+enum PassportStatus {
+  ACTIVE
+  TRADE_IN_REQUESTED
+  RETURNED_TO_HUB
+  RECYCLED
+}
+
+enum GarmentGrade {
+  MINT
+  EXCELLENT
+  GOOD
+  END_OF_LIFE
+}
+
+model User {
+  id            String            @id @default(uuid())
+  email         String            @unique
+  name          String?
+  passwordHash  String?
+  role          Role              @default(CUSTOMER)
+  phone         String?
+  image         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  addresses     Address[]
+  orders        Order[]
+  reviews       Review[]
+  passports     ProductPassport[] @relation("CustomerPassports")
+  tradeIns      TradeInRecord[]
+
+  @@index([email])
+}
+
+model Address {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  street      String
+  city        String
+  state       String
+  postalCode  String
+  country     String   @default("US")
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders      Order[]
+
+  @@index([userId])
+}
+
+model Product {
+  id              String          @id @default(uuid())
+  name            String
+  slug            String          @unique
+  description     String          @db.Text
+  category        ProductCategory
+  basePrice       Decimal         @db.Decimal(10, 2)
+  isMonomaterial  Boolean         @default(true)
+  polymerType     String          @default("100% Bio-Polyether-Ester")
+  weightGrams     Int
+  hydrostaticMm   Int?            // e.g. 25000 mm waterproof rating
+  mvtrRating      Int?            // e.g. 35000 g/m²/24h breathability
+  pfasFree        Boolean         @default(true)
+  heroImage       String
+  images          String[]
+  isPublished     Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  variants        ProductVariant[]
+  reviews         Review[]
+  passports       ProductPassport[]
+
+  @@index([category])
+  @@index([slug])
+}
+
+model ProductVariant {
+  id              String      @id @default(uuid())
+  productId       String
+  product         Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku             String      @unique
+  size            String      // XS, S, M, L, XL
+  color           String      // Granite Black, Alpine White, Moss Green
+  colorHex        String      // #121212
+  additionalPrice Decimal     @default(0.00) @db.Decimal(10, 2)
+  stockQuantity   Int         @default(0)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  orderItems      OrderItem[]
+
+  @@index([productId])
+  @@index([sku])
+}
+
+model Order {
+  id                String          @id @default(uuid())
+  orderNumber       String          @unique
+  userId            String?
+  user              User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  status            OrderStatus     @default(PENDING)
+  paymentStatus     PaymentStatus   @default(UNPAID)
+  paymentMethod     PaymentMethod   @default(CARD)
+  subtotal          Decimal         @db.Decimal(10, 2)
+  shippingFee       Decimal         @default(0.00) @db.Decimal(10, 2)
+  tax               Decimal         @default(0.00) @db.Decimal(10, 2)
+  total             Decimal         @db.Decimal(10, 2)
+  currency          String          @default("USD")
+  shippingAddressId String?
+  shippingAddress   Address?        @relation(fields: [shippingAddressId], references: [id], onDelete: SetNull)
+  trackingNumber    String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  items             OrderItem[]
+
+  @@index([userId])
+  @@index([orderNumber])
+  @@index([status])
+}
+
+model OrderItem {
+  id              String          @id @default(uuid())
+  orderId         String
+  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId       String
+  variant         ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  quantity        Int
+  unitPrice       Decimal         @db.Decimal(10, 2)
+  totalPrice      Decimal         @db.Decimal(10, 2)
+
+  @@index([orderId])
+  @@index([variantId])
+}
+
+model ProductPassport {
+  id                  String          @id @default(uuid())
+  serialNumber        String          @unique // e.g. "SPFY-2026-APEX-008492"
+  nfcTagId            String?         @unique
+  productId           String
+  product             Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  currentOwnerId      String?
+  currentOwner        User?           @relation("CustomerPassports", fields: [currentOwnerId], references: [id], onDelete: SetNull)
+  manufactureBatch    String          // e.g. "BATCH-2026-Q1"
+  manufactureDate     DateTime
+  tier1Factory        String          // e.g. "Porto Precision Bond, Portugal"
+  tier2Mill           String          // e.g. "Taichung Bio-Polymer Mills, Taiwan"
+  carbonFootprintKg   Decimal         @db.Decimal(6, 2) // e.g. 4.12 kg CO2e
+  waterUsageLiters    Decimal         @db.Decimal(6, 2) // e.g. 18.5 L
+  guaranteedBuybackUSD Decimal        @db.Decimal(10, 2) // e.g. 110.00
+  status              PassportStatus  @default(ACTIVE)
+  currentGrade        GarmentGrade    @default(MINT)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  tradeIns            TradeInRecord[]
+
+  @@index([serialNumber])
+  @@index([productId])
+  @@index([currentOwnerId])
+}
+
+model TradeInRecord {
+  id              String          @id @default(uuid())
+  passportId      String
+  passport        ProductPassport @relation(fields: [passportId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  estimatedCredit Decimal         @db.Decimal(10, 2)
+  finalCredit     Decimal?        @db.Decimal(10, 2)
+  trackingCode    String?
+  status          String          @default("INSPECTION_PENDING") // PENDING, APPROVED, COMPLETED, REJECTED
+  requestedAt     DateTime        @default(now())
+  resolvedAt      DateTime?
+
+  @@index([passportId])
+  @@index([userId])
+}
+
+model Review {
+  id              String          @id @default(uuid())
+  productId       String
+  product         Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating          Int             @default(5)
+  title           String
+  comment         String          @db.Text
+  verifiedPurchase Boolean        @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([productId])
+  @@index([userId])
+}
